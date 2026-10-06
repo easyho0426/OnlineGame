@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>회로 방어 · CIRCUIT DEFENSE</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+
+  :root{
+    --bg: #060a14;
+    --bg-panel: #0b1220;
+    --trace: #16233a;
+    --trace-glow: #2dd4ff;
+    --core: #ff5c7a;
+    --amber: #ffb020;
+    --green: #35d07f;
+    --purple: #b478ff;
+    --text: #d7e2f4;
+    --text-dim: #6d7fa0;
+    --danger: #ff4d6a;
+    --laser: #ff3d81;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; background: var(--bg); color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x:hidden;
+  }
+  #app{
+    display:flex; flex-direction:column; align-items:center;
+    padding: 18px 14px 40px;
+    min-height:100vh;
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(45,212,255,0.07), transparent 55%),
+      radial-gradient(ellipse at 85% 100%, rgba(180,120,255,0.06), transparent 50%),
+      var(--bg);
+  }
+  .titlebar{
+    width:100%; max-width: 1060px;
+    display:flex; align-items:baseline; justify-content:space-between;
+    margin-bottom: 14px; gap: 10px; flex-wrap: wrap;
+  }
+  .titlebar h1{
+    font-family:'JetBrains Mono', monospace; font-weight:800;
+    font-size: 22px; letter-spacing: 0.5px; margin:0; color:#eef4ff;
+  }
+  .titlebar h1 span{ color: var(--trace-glow); }
+  .titlebar p{
+    margin:0; font-size:12.5px; color: var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+  }
+
+  .hud{
+    width:100%; max-width: 1060px;
+    display:flex; gap:10px; margin-bottom: 12px; flex-wrap: wrap; align-items:center;
+  }
+  .stat{
+    background: var(--bg-panel);
+    border: 1px solid #1a2740;
+    border-radius: 10px;
+    padding: 8px 14px;
+    display:flex; flex-direction:column; gap:2px;
+    min-width: 84px;
+  }
+  .stat .label{ font-size:10.5px; color:var(--text-dim); font-family:'JetBrains Mono',monospace; }
+  .stat .value{ font-size:18px; font-weight:800; font-family:'JetBrains Mono',monospace; }
+  .stat.money .value{ color: var(--amber); }
+  .stat.life .value{ color: var(--danger); }
+  .stat.wave .value{ color: var(--trace-glow); }
+  .stat.score .value{ color: var(--green); }
+  .diff-badge{
+    margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:11px;
+    padding:7px 12px; border-radius:8px; border:1px solid #1a2740;
+    color: var(--text-dim); background: var(--bg-panel);
+  }
+  .diff-badge b{ color: var(--text); }
+
+  .board-wrap{
+    display:flex; gap:16px; width:100%; max-width:1060px; align-items:flex-start;
+    flex-wrap: wrap; justify-content:center;
+  }
+
+  #canvasHolder{
+    position:relative; border-radius: 14px; overflow:hidden;
+    border: 1px solid #1a2740; flex: none;
+    box-shadow: 0 0 0 1px rgba(45,212,255,0.04), 0 20px 60px rgba(0,0,0,0.55);
+    background: var(--bg-panel);
+  }
+  canvas{ display:block; touch-action: none; cursor: crosshair; }
+
+  .overlay-msg{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap: 14px; padding: 20px;
+    background: rgba(4,7,14,0.88);
+    backdrop-filter: blur(2px);
+  }
+  .overlay-msg h2{
+    font-family:'JetBrains Mono',monospace; font-size: 24px; margin:0;
+    letter-spacing: 1px; text-align:center;
+  }
+  .overlay-msg p{ margin:0; color:var(--text-dim); font-size:13px; text-align:center; max-width:360px; }
+  .overlay-msg.hidden{ display:none; }
+  .btn{
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:13px;
+    border:none; border-radius:8px; padding:10px 18px; cursor:pointer;
+    background: var(--trace-glow); color:#04141d; letter-spacing:0.4px;
+    transition: transform .12s ease, filter .12s ease;
+  }
+  .btn:hover{ filter: brightness(1.1); transform: translateY(-1px); }
+  .btn:active{ transform: translateY(0px) scale(.98); }
+  .btn.ghost{
+    background:transparent; color:var(--trace-glow); border:1px solid var(--trace-glow);
+  }
+  .btn:disabled{ opacity:.35; cursor:not-allowed; filter:none; transform:none; }
+
+  .diff-picker{ display:flex; gap:8px; }
+  .diff-opt{
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:12px;
+    border:1px solid #26385a; border-radius:8px; padding:9px 14px; cursor:pointer;
+    background: #0a1220; color:var(--text-dim); transition: all .15s ease;
+  }
+  .diff-opt.easy.active{ border-color: var(--green); color: var(--green); background:#0c1b14; }
+  .diff-opt.normal.active{ border-color: var(--amber); color: var(--amber); background:#1b1409; }
+  .diff-opt.hard.active{ border-color: var(--danger); color: var(--danger); background:#1c0b10; }
+
+  .panel{
+    background: var(--bg-panel);
+    border: 1px solid #1a2740;
+    border-radius: 14px;
+    padding: 14px;
+    width: 296px; flex: none;
+    display:flex; flex-direction:column; gap: 10px;
+  }
+  .panel h3{
+    margin:0 0 2px; font-size: 12px; letter-spacing:1px; color: var(--text-dim);
+    font-family:'JetBrains Mono',monospace; text-transform:uppercase;
+  }
+  #towerList{
+    display:flex; flex-direction:column; gap:8px; margin-top:8px;
+    max-height: 330px; overflow-y:auto; padding-right:4px;
+  }
+  #towerList::-webkit-scrollbar{ width:6px; }
+  #towerList::-webkit-scrollbar-thumb{ background:#1a2740; border-radius:4px; }
+  .tower-card{
+    display:flex; align-items:center; gap:10px;
+    border:1px solid #1a2740; border-radius:10px; padding:9px 10px;
+    cursor:pointer; background: #0a1220; transition: border-color .15s, background .15s;
+  }
+  .tower-card:hover{ border-color:#2a3f66; }
+  .tower-card.selected{ border-color: var(--trace-glow); background:#0c1a2c; }
+  .tower-card.disabled{ opacity:.4; cursor:not-allowed; }
+  .tower-swatch{
+    width:30px; height:30px; border-radius:8px; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px;
+  }
+  .tower-info{ display:flex; flex-direction:column; gap:1px; flex:1; min-width:0; }
+  .tower-info .name{ font-size:12.5px; font-weight:700; }
+  .tower-info .desc{ font-size:10.5px; color:var(--text-dim); line-height:1.3; }
+  .tower-cost{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--amber); font-weight:700; white-space:nowrap; }
+
+  .selected-info{
+    border-top: 1px dashed #1a2740; padding-top:10px; font-size:12px;
+    font-family:'JetBrains Mono',monospace; color:var(--text-dim);
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .selected-info b{ color:var(--text); }
+  .info-actions{ display:flex; gap:6px; margin-top:2px; }
+  .sell-btn, .rotate-btn{
+    font-family:'JetBrains Mono',monospace; font-weight:700; font-size:11.5px;
+    border:none; border-radius:7px; padding:6px 10px; cursor:pointer;
+  }
+  .sell-btn{ background: var(--danger); color:#1a0509; }
+  .rotate-btn{ background: var(--trace-glow); color:#04141d; }
+
+  .wavebar{ display:flex; gap:8px; }
+  .wavebar .btn{ flex:1; }
+
+  .legend{
+    font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--text-dim);
+    line-height:1.6;
+  }
+
+  .toast{
+    position:absolute; left:50%; top:14px; transform: translateX(-50%);
+    background: rgba(255,77,106,0.14); border:1px solid var(--danger); color:#ffdde3;
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; padding:6px 12px;
+    border-radius: 7px; opacity:0; pointer-events:none; transition: opacity .25s ease, top .25s ease;
+    z-index: 5;
+  }
+  .toast.show{ opacity:1; top:22px; }
+
+  @media (max-width: 1060px){
+    .panel{ width:100%; max-width: 720px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="titlebar">
+    <h1>회로 <span>방어</span> // CIRCUIT DEFENSE</h1>
+    <p>데이터 패킷이 회로를 타고 코어로 접근합니다. 방어 노드를 배치하세요.</p>
+  </div>
+
+  <div class="hud">
+    <div class="stat money"><span class="label">MONEY</span><span class="value" id="statMoney">150</span></div>
+    <div class="stat life"><span class="label">CORE HP</span><span class="value" id="statLife">20</span></div>
+    <div class="stat wave"><span class="label">WAVE</span><span class="value" id="statWave">0 / 100</span></div>
+    <div class="stat score"><span class="label">SCORE</span><span class="value" id="statScore">0</span></div>
+    <div class="diff-badge" id="diffBadge">난이도: <b>쉬움</b></div>
+  </div>
+
+  <div class="board-wrap">
+    <div id="canvasHolder">
+      <canvas id="game" width="720" height="450"></canvas>
+      <div class="toast" id="toast"></div>
+      <div class="overlay-msg" id="startOverlay">
+        <h2 style="color:#eef4ff">회로 방어</h2>
+        <p>친구와 같은 방 코드를 입력하면 한 맵에서 함께 방어합니다. 100개의 웨이브를 버텨내세요.</p>
+        <div class="diff-picker" id="diffPicker">
+          <button class="diff-opt easy active" data-diff="easy">쉬움</button>
+          <button class="diff-opt normal" data-diff="normal">보통</button>
+          <button class="diff-opt hard" data-diff="hard">어려움</button>
+        </div>
+        <input id="roomInput" maxlength="20" placeholder="방 코드 (예: myroom)" style="font-family:'JetBrains Mono',monospace; font-size:13px; padding:9px 12px; border-radius:8px; border:1px solid #26385a; background:#0a1220; color:#d7e2f4; text-align:center; width:220px;">
+        <button class="btn" id="beginBtn">입장하기</button>
+      </div>
+      <div class="overlay-msg hidden" id="endOverlay">
+        <h2 id="endTitle">GAME OVER</h2>
+        <p id="endDesc">코어가 파괴되었습니다.</p>
+        <div class="diff-picker" id="diffPicker2">
+          <button class="diff-opt easy active" data-diff="easy">쉬움</button>
+          <button class="diff-opt normal" data-diff="normal">보통</button>
+          <button class="diff-opt hard" data-diff="hard">어려움</button>
+        </div>
+        <button class="btn" id="restartBtn">다시 시작</button>
+      </div>
+      <div class="overlay-msg hidden" id="confirmOverlay">
+        <h2 style="color:var(--danger)">정말로 삭제하시겠습니까?</h2>
+        <p>설치된 모든 방어 노드가 제거됩니다. 각 노드의 판매가(투자금의 55%)만큼 자금이 환급됩니다.</p>
+        <div style="display:flex; gap:10px;">
+          <button class="btn ghost" id="cancelDeleteBtn">취소</button>
+          <button class="btn" id="confirmDeleteBtn" style="background:var(--danger); color:#1a0509;">전체 삭제</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div>
+        <h3>방어 노드 구매</h3>
+        <div id="towerList"></div>
+      </div>
+
+      <div class="selected-info" id="selectedInfo" style="display:none;"></div>
+
+      <div class="wavebar">
+        <button class="btn" id="waveBtn">웨이브 시작</button>
+        <button class="btn ghost" id="speedBtn">x1</button>
+      </div>
+
+      <button class="btn ghost" id="clearAllBtn" style="border-color:var(--danger); color:var(--danger); width:100%;">전체 삭제</button>
+
+      <div class="legend">
+        · 노드 카드를 클릭한 뒤 격자 칸을 눌러 설치하세요<br>
+        · 설치된 노드를 <b style="color:var(--text)">마우스로 끌어서</b> 다른 칸으로 옮길 수 있습니다<br>
+        · 설치된 노드를 클릭하면 정보 / 회전 / 판매가 나옵니다<br>
+        · <b style="color:var(--text)">같은 종류·같은 단계</b>의 노드를 선택한 뒤 다른 같은 조합 노드를 클릭하면 합쳐져 <b style="color:var(--text)">다음 단계(최대 5단계)</b>로 업그레이드됩니다<br>
+        · 레이저는 지나가는 모든 적에게 지속 피해를 주고, 거울은 그 궤도를 90도로 꺾습니다<br>
+        · 회로(진입로) 위에는 설치할 수 없습니다
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="shared.js"></script>
+<script>
+(function(){
+  "use strict";
+  const { COLS, ROWS, CELL, waypoints, spawnPos, corePos, DIFFICULTY, TOWER_DEFS,
+          MAX_TIER, TIER_LABEL, cellBuildable } = Shared;
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const socket = io();
+
+  // 서버가 보내준 최신 게임 상태 (브라우저는 이걸 그리기만 함)
+  let state = { difficulty:'easy', money:0, life:0, wave:0, maxWave:100, score:0, speed:1,
+    waveActive:false, gameOver:false, victory:false, towers:[], enemies:[], projectiles:[],
+    players:1, room:'' };
+  let particles = [];
+  let joined = false, currentRoom = '', myDifficulty = 'easy';
+  let selectedTowerType = null, selectedPlacedId = null;
+  let hoverCell = null, dragState = null;
+  const smooth = new Map();   // 적/투사체 움직임 부드럽게 보이게 하는 표시용 위치
+
+  const selTower = () => state.towers.find(t => t.id === selectedPlacedId) || null;
+
+  // ---------- 서버 통신 ----------
+  function send(cmd){
+    socket.emit('cmd', cmd, (res)=>{
+      if(!res) return;
+      if(res.error) showToast(res.error);
+      if(res.toast) showToast(res.toast);
+      if(res.ok && cmd.type === 'place') selectedTowerType = null;
+      if(res.selectId){ selectedPlacedId = res.selectId; selectedTowerType = null; }
+      refreshTowerCards(); renderSelectedInfo(true);
+    });
+  }
+
+  socket.on('state', (s)=>{
+    const events = s.events || [];
+    Object.assign(state, s);
+    events.forEach(ev => spawnHitParticles(ev.x, ev.y, ev.color, ev.n));
+    const live = new Set();
+    state.enemies.forEach(e => live.add(e.id));
+    state.projectiles.forEach(p => live.add(p.id));
+    for(const id of smooth.keys()) if(!live.has(id)) smooth.delete(id);
+    if(selectedPlacedId && !state.towers.some(t => t.id === selectedPlacedId)) selectedPlacedId = null;
+    updateHUD();
+    renderSelectedInfo(false);
+  });
+
+  socket.on('connect', ()=>{ if(currentRoom) joinRoom(currentRoom, true); });
+  socket.on('disconnect', ()=> showToast('서버와 연결이 끊겼습니다. 재연결 중...'));
+
+  function joinRoom(room, silent){
+    socket.emit('join', { room, difficulty: myDifficulty }, (res)=>{
+      if(res && res.error){ showToast(res.error); return; }
+      joined = true; currentRoom = res.room;
+      if(!silent) document.getElementById('startOverlay').classList.add('hidden');
+    });
+  }
+
+  // ---------- 이펙트 ----------
+  function spawnHitParticles(x,y,color,n){
+    n = n || 4;
+    for(let i=0;i<n;i++){
+      particles.push({ x, y, vx:(Math.random()-0.5)*140, vy:(Math.random()-0.5)*140,
+        life:0.4+Math.random()*0.3, color });
+    }
+  }
+
+  function roundRect(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  // ---------- 그리기 함수들 ----------
+  function drawTower(t, showRange, ox, oy){
+    const def = TOWER_DEFS[t.typeKey];
+    const x = ox !== undefined ? ox : t.x, y = oy !== undefined ? oy : t.y;
+    if(showRange && t.range){
+      ctx.beginPath();
+      ctx.arc(x, y, t.range, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(45,212,255,0.35)';
+      ctx.fillStyle = 'rgba(45,212,255,0.06)';
+      ctx.fill(); ctx.stroke();
+    }
+    const half = 14 + (t.tier-1)*1.6;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.shadowColor = def.color;
+    ctx.shadowBlur = 8 + (t.tier-1)*4;
+    ctx.fillStyle = '#0a1220';
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, -half, -half, half*2, half*2, 7);
+    ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    if(def.kind === 'mirror'){
+      ctx.strokeStyle = def.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      if(t.orientation === '/'){ ctx.moveTo(-9,9); ctx.lineTo(9,-9); }
+      else { ctx.moveTo(-9,-9); ctx.lineTo(9,9); }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = def.color;
+      ctx.font = (13+t.tier) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(def.icon, 0, 1);
+      if(def.kind === 'laser'){
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.lineTo(t.dir.dc*16, t.dir.dr*16);
+        ctx.stroke();
+      }
+    }
+    if(t.tier > 1){
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.beginPath();
+      ctx.arc(half-3, -half+3, 7, 0, Math.PI*2);
+      ctx.fillStyle = def.color;
+      ctx.fill();
+      ctx.fillStyle = '#04141d';
+      ctx.fillText(TIER_LABEL[t.tier-1], half-3, -half+3.5);
+    }
+    ctx.restore();
+  }
+
+  function drawEnemy(e){
+    const x = e.dx !== undefined ? e.dx : e.x, y = e.dy !== undefined ? e.dy : e.y;
+    ctx.save();
+    ctx.shadowColor = e.color; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(x, y, e.r, 0, Math.PI*2);
+    ctx.fillStyle = e.color; ctx.fill();
+    ctx.restore();
+    const w = e.r*2.4;
+    const pct = Math.max(0, e.hp/e.maxHp);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x-w/2, y-e.r-9, w, 4);
+    ctx.fillStyle = pct > 0.5 ? '#35d07f' : (pct > 0.25 ? '#ffb020' : '#ff4d6a');
+    ctx.fillRect(x-w/2, y-e.r-9, w*pct, 4);
+  }
+
+  function drawProjectile(p){
+    const x = p.dx !== undefined ? p.dx : p.x, y = p.dy !== undefined ? p.dy : p.y;
+    ctx.save();
+    ctx.shadowColor = p.color; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(x, y, 3.6, 0, Math.PI*2);
+    ctx.fillStyle = p.color; ctx.fill();
+    ctx.restore();
+  }
+
+  // ---------- 상점 UI ----------
+  const towerListEl = document.getElementById('towerList');
+  Object.keys(TOWER_DEFS).forEach(key=>{
+    const def = TOWER_DEFS[key];
+    const card = document.createElement('div');
+    card.className = 'tower-card';
+    card.dataset.key = key;
+    card.innerHTML = `
+      <div class="tower-swatch" style="background:${def.color}22; color:${def.color}; border:1px solid ${def.color}55;">${def.icon}</div>
+      <div class="tower-info"><div class="name">${def.name}</div><div class="desc">${def.desc}</div></div>
+      <div class="tower-cost">${def.cost}</div>`;
+    card.addEventListener('click', ()=>{
+      if(!joined) return;
+      if(state.money < def.cost){ showToast('자금이 부족합니다'); return; }
+      selectedPlacedId = null;
+      selectedTowerType = (selectedTowerType === key) ? null : key;
+      refreshTowerCards(); renderSelectedInfo(true);
+    });
+    towerListEl.appendChild(card);
+  });
+
+  function refreshTowerCards(){
+    [...towerListEl.children].forEach(card=>{
+      const def = TOWER_DEFS[card.dataset.key];
+      card.classList.toggle('selected', selectedTowerType === card.dataset.key);
+      card.classList.toggle('disabled', state.money < def.cost);
+    });
+  }
+
+  // ---------- 마우스 입력 → 서버 명령 ----------
+  function toCanvasCoords(ev){
+    const rect = canvas.getBoundingClientRect();
+    return { x:(ev.clientX-rect.left)*(canvas.width/rect.width), y:(ev.clientY-rect.top)*(canvas.height/rect.height) };
+  }
+  const towerAt = (r,c) => state.towers.find(t => t.r===r && t.c===c);
+  const canMerge = (a,b) => a && b && a.id!==b.id && a.typeKey===b.typeKey && a.tier===b.tier && a.tier<MAX_TIER;
+
+  function handleExistingTowerTap(t){
+    const prev = selTower();
+    if(canMerge(prev, t)){ send({ type:'merge', a:prev.id, b:t.id }); return; }
+    selectedPlacedId = t.id; selectedTowerType = null;
+    refreshTowerCards(); renderSelectedInfo(true);
+  }
+
+  function handleEmptyTap(r,c){
+    if(r<0||c<0||r>=ROWS||c>=COLS) return;
+    if(selectedTowerType){
+      send({ type:'place', tower:selectedTowerType, r, c });
+    } else {
+      selectedPlacedId = null; renderSelectedInfo(true);
+    }
+  }
+
+  function attemptDrop(tower, r, c){
+    if(r<0||c<0||r>=ROWS||c>=COLS) return;
+    if(r===tower.r && c===tower.c) return;
+    send({ type:'move', id:tower.id, r, c });   // 합체/이동/거절 판단은 서버가 함
+  }
+
+  canvas.addEventListener('pointerdown', (ev)=>{
+    if(!joined) return;
+    const {x,y} = toCanvasCoords(ev);
+    const t = towerAt(Math.floor(y/CELL), Math.floor(x/CELL));
+    if(t){
+      dragState = { tower:t, ghostX:t.x, ghostY:t.y, startClientX:ev.clientX, startClientY:ev.clientY, moved:false };
+      canvas.setPointerCapture(ev.pointerId);
+    }
+  });
+  canvas.addEventListener('pointermove', (ev)=>{
+    const {x,y} = toCanvasCoords(ev);
+    hoverCell = { r:Math.floor(y/CELL), c:Math.floor(x/CELL) };
+    if(dragState){
+      if(Math.hypot(ev.clientX-dragState.startClientX, ev.clientY-dragState.startClientY) > 5) dragState.moved = true;
+      if(dragState.moved){
+        dragState.ghostX = Math.max(0, Math.min(COLS*CELL, x));
+        dragState.ghostY = Math.max(0, Math.min(ROWS*CELL, y));
+      }
+    }
+  });
+  canvas.addEventListener('pointerleave', ()=>{ hoverCell = null; });
+  canvas.addEventListener('pointerup', (ev)=>{
+    if(!joined){ dragState = null; return; }
+    const {x,y} = toCanvasCoords(ev);
+    const r = Math.floor(y/CELL), c = Math.floor(x/CELL);
+    if(!dragState){
+      const existing = towerAt(r,c);
+      if(existing) handleExistingTowerTap(existing); else handleEmptyTap(r,c);
+      return;
+    }
+    const t = dragState.tower;
+    if(!dragState.moved) handleExistingTowerTap(t); else attemptDrop(t, r, c);
+    dragState = null;
+  });
+
+  // ---------- 선택 정보 패널 ----------
+  let lastInfoKey = '';
+  function renderSelectedInfo(force){
+    const el = document.getElementById('selectedInfo');
+    const t = selTower();
+    // 서버 상태가 초당 30번 오므로, 내용이 바뀔 때만 다시 그림 (안 그러면 버튼 클릭이 씹힘)
+    const key = t ? [t.id,t.tier,t.kills,t.orientation,t.dir&&t.dir.dc,t.dir&&t.dir.dr,t.totalSpent].join('|') : '';
+    if(!force && key === lastInfoKey) return;
+    lastInfoKey = key;
+    if(!t){ el.style.display = 'none'; el.innerHTML = ''; return; }
+    const def = TOWER_DEFS[t.typeKey];
+    const sellValue = Math.floor(t.totalSpent*0.55);
+    let statsHtml = '';
+    if(def.kind === 'attack'){
+      statsHtml = `<div>단계: <b>${TIER_LABEL[t.tier-1]} (${t.tier}/5)</b></div><div>피해량: <b>${Math.round(t.damage)}</b> &nbsp; 사거리: <b>${Math.round(t.range)}</b></div><div>처치 수: <b>${t.kills}</b></div>`;
+    } else if(def.kind === 'laser'){
+      const dirName = t.dir.dc===1?'→':t.dir.dc===-1?'←':t.dir.dr===1?'↓':'↑';
+      statsHtml = `<div>단계: <b>${TIER_LABEL[t.tier-1]} (${t.tier}/5)</b></div><div>초당 피해: <b>${Math.round(t.damage*10)/10}</b> &nbsp; 방향: <b>${dirName}</b></div><div>처치 수: <b>${t.kills}</b></div>`;
+    } else {
+      statsHtml = `<div>단계: <b>${TIER_LABEL[t.tier-1]} (${t.tier}/5)</b></div><div>각도: <b>${t.orientation === '/' ? '↗ /' : '↘ \\'}</b></div>`;
+    }
+    const mergeHint = t.tier < MAX_TIER
+      ? `<div style="opacity:.8;">같은 ${TIER_LABEL[t.tier-1]}단계 ${def.name}를 클릭하면 합체됩니다</div>`
+      : `<div style="opacity:.8;">최고 단계입니다</div>`;
+    el.style.display = 'flex';
+    el.innerHTML = `
+      <div><b>${def.name}</b> 선택됨</div>
+      ${statsHtml}
+      ${mergeHint}
+      <div class="info-actions">
+        ${(def.kind==='laser'||def.kind==='mirror') ? '<button class="rotate-btn" id="rotateBtn">회전</button>' : ''}
+        <button class="sell-btn" id="sellBtn">판매 (+${sellValue})</button>
+      </div>`;
+    const rotateBtn = document.getElementById('rotateBtn');
+    if(rotateBtn) rotateBtn.onclick = ()=> send({ type:'rotate', id:t.id });
+    document.getElementById('sellBtn').onclick = ()=>{ send({ type:'sell', id:t.id }); selectedPlacedId = null; renderSelectedInfo(true); };
+  }
+
+  let toastTimer = null;
+  function showToast(msg){
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> el.classList.remove('show'), 1400);
+  }
+
+  // ---------- HUD ----------
+  function setText(id, v){ const el = document.getElementById(id); if(el.textContent !== String(v)) el.textContent = v; }
+  function updateHUD(){
+    setText('statMoney', state.money);
+    setText('statLife', state.life);
+    setText('statWave', `${state.wave} / ${state.maxWave}`);
+    setText('statScore', state.score);
+    const badge = document.getElementById('diffBadge');
+    const badgeHtml = `방: <b>${state.room}</b> · 접속 <b>${state.players}명</b> · 난이도: <b>${DIFFICULTY[state.difficulty].label}</b>`;
+    if(badge.innerHTML !== badgeHtml) badge.innerHTML = badgeHtml;
+    refreshTowerCards();
+    const waveBtn = document.getElementById('waveBtn');
+    const over = state.gameOver || state.victory;
+    waveBtn.disabled = state.waveActive || over;
+    setText('waveBtn', state.waveActive ? '웨이브 진행 중...' : (state.wave >= state.maxWave ? '모든 웨이브 완료' : `웨이브 ${state.wave+1} 시작`));
+    setText('speedBtn', 'x' + state.speed);
+    const endOv = document.getElementById('endOverlay');
+    endOv.classList.toggle('hidden', !over);
+    if(over){
+      document.getElementById('endTitle').textContent = state.victory ? 'DEFENSE COMPLETE' : 'GAME OVER';
+      document.getElementById('endTitle').style.color = state.victory ? 'var(--green)' : 'var(--danger)';
+      document.getElementById('endDesc').textContent = state.victory
+        ? `100개의 웨이브를 모두 방어했습니다. 최종 점수 ${state.score}`
+        : `${state.wave} 웨이브에서 코어가 파괴되었습니다. 최종 점수 ${state.score}`;
+    }
+  }
+
+  // ---------- 버튼들 ----------
+  document.getElementById('waveBtn').addEventListener('click', ()=> send({ type:'startWave' }));
+  document.getElementById('speedBtn').addEventListener('click', ()=> send({ type:'speed' }));
+
+  function setupDiffPicker(containerId){
+    const container = document.getElementById(containerId);
+    [...container.children].forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        [...container.children].forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        myDifficulty = btn.dataset.diff;
+      });
+    });
+  }
+  setupDiffPicker('diffPicker');
+  setupDiffPicker('diffPicker2');
+
+  document.getElementById('beginBtn').addEventListener('click', ()=>{
+    const room = document.getElementById('roomInput').value.trim() || 'lobby';
+    joinRoom(room, false);
+  });
+  document.getElementById('restartBtn').addEventListener('click', ()=> send({ type:'restart', difficulty: myDifficulty }));
+
+  document.getElementById('clearAllBtn').addEventListener('click', ()=>{
+    if(!joined) return;
+    if(state.towers.length === 0){ showToast('삭제할 노드가 없습니다'); return; }
+    document.getElementById('confirmOverlay').classList.remove('hidden');
+  });
+  document.getElementById('cancelDeleteBtn').addEventListener('click', ()=>{
+    document.getElementById('confirmOverlay').classList.add('hidden');
+  });
+  document.getElementById('confirmDeleteBtn').addEventListener('click', ()=>{
+    document.getElementById('confirmOverlay').classList.add('hidden');
+    send({ type:'clearAll' });
+  });
+
+  // ---------- 메인 루프 (그리기 전용) ----------
+  let lastTime = performance.now();
+  function loop(now){
+    const dt = Math.min((now - lastTime)/1000, 0.05);
+    lastTime = now;
+
+    // 서버에서 받은 위치로 부드럽게 따라가기
+    const k = Math.min(1, dt*22);
+    [state.enemies, state.projectiles].forEach(list => list.forEach(o=>{
+      let s = smooth.get(o.id);
+      if(!s){ s = { x:o.x, y:o.y }; smooth.set(o.id, s); }
+      s.x += (o.x - s.x)*k; s.y += (o.y - s.y)*k;
+      o.dx = s.x; o.dy = s.y;
+    }));
+    particles.forEach(p=>{ p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt; });
+    particles = particles.filter(p => p.life > 0);
+
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function render(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#070c18';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    for(let c=0;c<=COLS;c++){ ctx.beginPath(); ctx.moveTo(c*CELL,0); ctx.lineTo(c*CELL,ROWS*CELL); ctx.stroke(); }
+    for(let r=0;r<=ROWS;r++){ ctx.beginPath(); ctx.moveTo(0,r*CELL); ctx.lineTo(COLS*CELL,r*CELL); ctx.stroke(); }
+
+    ctx.save();
+    ctx.strokeStyle = '#16233a';
+    ctx.lineWidth = CELL*0.62;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    waypoints.forEach((p,i)=> i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(45,212,255,0.28)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    waypoints.forEach((p,i)=> i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(53,208,127,0.85)';
+    ctx.beginPath(); ctx.arc(spawnPos.x, spawnPos.y, 8, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.shadowColor = '#ff5c7a'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ff5c7a';
+    roundRect(ctx, corePos.x-16, corePos.y-16, 32, 32, 8);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#1a0509';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('◈', corePos.x, corePos.y+1);
+    ctx.restore();
+
+    if(hoverCell && selectedTowerType){
+      const {r,c} = hoverCell;
+      if(r>=0&&c>=0&&r<ROWS&&c<COLS){
+        const buildable = cellBuildable(r,c) && !towerAt(r,c);
+        ctx.save();
+        ctx.fillStyle = buildable ? 'rgba(53,208,127,0.18)' : 'rgba(255,77,106,0.18)';
+        ctx.strokeStyle = buildable ? '#35d07f' : '#ff4d6a';
+        ctx.lineWidth = 2;
+        ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+        ctx.strokeRect(c*CELL, r*CELL, CELL, CELL);
+        const def = TOWER_DEFS[selectedTowerType];
+        if(def.range){
+          ctx.beginPath();
+          ctx.arc(c*CELL+CELL/2, r*CELL+CELL/2, def.range, 0, Math.PI*2);
+          ctx.strokeStyle = 'rgba(45,212,255,0.3)';
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    if(dragState && dragState.moved && hoverCell){
+      const {r,c} = hoverCell;
+      if(r>=0&&c>=0&&r<ROWS&&c<COLS){
+        const tw = dragState.tower;
+        const target = state.towers.find(t=> t.id!==tw.id && t.r===r && t.c===c);
+        let ok, mergeable=false;
+        if(target){ mergeable = canMerge(tw, target); ok = mergeable; }
+        else ok = cellBuildable(r,c);
+        ctx.save();
+        ctx.fillStyle = ok ? (mergeable ? 'rgba(45,212,255,0.22)' : 'rgba(53,208,127,0.18)') : 'rgba(255,77,106,0.18)';
+        ctx.strokeStyle = ok ? (mergeable ? '#2dd4ff' : '#35d07f') : '#ff4d6a';
+        ctx.lineWidth = 2;
+        ctx.fillRect(c*CELL, r*CELL, CELL, CELL);
+        ctx.strokeRect(c*CELL, r*CELL, CELL, CELL);
+        ctx.restore();
+      }
+    }
+
+    // 레이저 빔
+    ctx.save();
+    state.towers.forEach(t=>{
+      const def = TOWER_DEFS[t.typeKey];
+      if(def.kind === 'laser' && t.beam){
+        ctx.strokeStyle = def.color; ctx.shadowColor = def.color; ctx.shadowBlur = 8;
+        ctx.lineWidth = 3; ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        t.beam.forEach(s=>{ ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); });
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+
+    state.towers.forEach(t=>{
+      if(dragState && dragState.moved && t.id === dragState.tower.id){
+        ctx.save(); ctx.globalAlpha = 0.75;
+        drawTower(t, false, dragState.ghostX, dragState.ghostY);
+        ctx.restore();
+      } else {
+        drawTower(t, t.id === selectedPlacedId);
+      }
+    });
+
+    state.enemies.forEach(drawEnemy);
+    state.projectiles.forEach(drawProjectile);
+
+    particles.forEach(p=>{
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, p.life/0.7);
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  updateHUD();
+  requestAnimationFrame(loop);
+})();
+
+</script>
+</body>
+</html>
