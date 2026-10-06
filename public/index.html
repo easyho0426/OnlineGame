@@ -287,11 +287,15 @@
   const socket = io();
 
   // 서버가 보내준 최신 게임 상태 (브라우저는 이걸 그리기만 함)
-  let state = { difficulty:'easy', money:0, life:0, wave:0, maxWave:100, score:0, speed:1,
+  let state = { difficulty:'easy', playerList:[], life:0, wave:0, maxWave:100, score:0, speed:1,
     waveActive:false, gameOver:false, victory:false, towers:[], enemies:[], projectiles:[],
     players:1, room:'' };
   let particles = [];
-  let joined = false, currentRoom = '', myDifficulty = 'easy';
+  let joined = false, currentRoom = '', myDifficulty = 'easy', myNum = 0;
+  // 탭마다 다른 비밀 id (새로고침해도 유지, 서버가 "나"를 알아보는 용도)
+  let pid = sessionStorage.getItem('cd_pid');
+  if(!pid){ pid = Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2); sessionStorage.setItem('cd_pid', pid); }
+  const myMoney = () => { const p = state.playerList.find(p => p.num === myNum); return p ? p.money : 0; };
   let selectedTowerType = null, selectedPlacedId = null;
   let hoverCell = null, dragState = null;
   const smooth = new Map();   // 적/투사체 움직임 부드럽게 보이게 하는 표시용 위치
@@ -327,9 +331,9 @@
   socket.on('disconnect', ()=> showToast('서버와 연결이 끊겼습니다. 재연결 중...'));
 
   function joinRoom(room, silent){
-    socket.emit('join', { room, difficulty: myDifficulty }, (res)=>{
+    socket.emit('join', { room, difficulty: myDifficulty, pid }, (res)=>{
       if(res && res.error){ showToast(res.error); return; }
-      joined = true; currentRoom = res.room;
+      joined = true; currentRoom = res.room; myNum = res.num;
       if(!silent) document.getElementById('startOverlay').classList.add('hidden');
     });
   }
@@ -407,6 +411,11 @@
       ctx.fillStyle = '#04141d';
       ctx.fillText(TIER_LABEL[t.tier-1], half-3, -half+3.5);
     }
+    // 주인 표시 (내 노드는 밝게)
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = t.owner === myNum ? '#ffffff' : 'rgba(255,255,255,0.45)';
+    ctx.fillText('P' + t.owner, -half+2, half-3);
     ctx.restore();
   }
 
@@ -447,7 +456,7 @@
       <div class="tower-cost">${def.cost}</div>`;
     card.addEventListener('click', ()=>{
       if(!joined) return;
-      if(state.money < def.cost){ showToast('자금이 부족합니다'); return; }
+      if(myMoney() < def.cost){ showToast('자금이 부족합니다'); return; }
       selectedPlacedId = null;
       selectedTowerType = (selectedTowerType === key) ? null : key;
       refreshTowerCards(); renderSelectedInfo(true);
@@ -459,7 +468,7 @@
     [...towerListEl.children].forEach(card=>{
       const def = TOWER_DEFS[card.dataset.key];
       card.classList.toggle('selected', selectedTowerType === card.dataset.key);
-      card.classList.toggle('disabled', state.money < def.cost);
+      card.classList.toggle('disabled', myMoney() < def.cost);
     });
   }
 
@@ -469,7 +478,7 @@
     return { x:(ev.clientX-rect.left)*(canvas.width/rect.width), y:(ev.clientY-rect.top)*(canvas.height/rect.height) };
   }
   const towerAt = (r,c) => state.towers.find(t => t.r===r && t.c===c);
-  const canMerge = (a,b) => a && b && a.id!==b.id && a.typeKey===b.typeKey && a.tier===b.tier && a.tier<MAX_TIER;
+  const canMerge = (a,b) => a && b && a.id!==b.id && a.owner===myNum && b.owner===myNum && a.typeKey===b.typeKey && a.tier===b.tier && a.tier<MAX_TIER;
 
   function handleExistingTowerTap(t){
     const prev = selTower();
@@ -497,7 +506,7 @@
     if(!joined) return;
     const {x,y} = toCanvasCoords(ev);
     const t = towerAt(Math.floor(y/CELL), Math.floor(x/CELL));
-    if(t){
+    if(t && t.owner === myNum){   // 내 노드만 끌어서 이동 가능
       dragState = { tower:t, ghostX:t.x, ghostY:t.y, startClientX:ev.clientX, startClientY:ev.clientY, moved:false };
       canvas.setPointerCapture(ev.pointerId);
     }
@@ -534,7 +543,7 @@
     const el = document.getElementById('selectedInfo');
     const t = selTower();
     // 서버 상태가 초당 30번 오므로, 내용이 바뀔 때만 다시 그림 (안 그러면 버튼 클릭이 씹힘)
-    const key = t ? [t.id,t.tier,t.kills,t.orientation,t.dir&&t.dir.dc,t.dir&&t.dir.dr,t.totalSpent].join('|') : '';
+    const key = t ? [t.id,t.owner,myNum,t.tier,t.kills,t.orientation,t.dir&&t.dir.dc,t.dir&&t.dir.dr,t.totalSpent].join('|') : '';
     if(!force && key === lastInfoKey) return;
     lastInfoKey = key;
     if(!t){ el.style.display = 'none'; el.innerHTML = ''; return; }
@@ -552,18 +561,20 @@
     const mergeHint = t.tier < MAX_TIER
       ? `<div style="opacity:.8;">같은 ${TIER_LABEL[t.tier-1]}단계 ${def.name}를 클릭하면 합체됩니다</div>`
       : `<div style="opacity:.8;">최고 단계입니다</div>`;
+    const mine = t.owner === myNum;
     el.style.display = 'flex';
     el.innerHTML = `
-      <div><b>${def.name}</b> 선택됨</div>
+      <div><b>${def.name}</b> 선택됨 <span style="opacity:.7">(${mine ? '내 노드' : '플레이어 ' + t.owner + '의 노드'})</span></div>
       ${statsHtml}
-      ${mergeHint}
-      <div class="info-actions">
+      ${mine ? mergeHint : ''}
+      ${mine ? `<div class="info-actions">
         ${(def.kind==='laser'||def.kind==='mirror') ? '<button class="rotate-btn" id="rotateBtn">회전</button>' : ''}
         <button class="sell-btn" id="sellBtn">판매 (+${sellValue})</button>
-      </div>`;
+      </div>` : ''}`;
     const rotateBtn = document.getElementById('rotateBtn');
     if(rotateBtn) rotateBtn.onclick = ()=> send({ type:'rotate', id:t.id });
-    document.getElementById('sellBtn').onclick = ()=>{ send({ type:'sell', id:t.id }); selectedPlacedId = null; renderSelectedInfo(true); };
+    const sellBtn = document.getElementById('sellBtn');
+    if(sellBtn) sellBtn.onclick = ()=>{ send({ type:'sell', id:t.id }); selectedPlacedId = null; renderSelectedInfo(true); };
   }
 
   let toastTimer = null;
@@ -578,12 +589,12 @@
   // ---------- HUD ----------
   function setText(id, v){ const el = document.getElementById(id); if(el.textContent !== String(v)) el.textContent = v; }
   function updateHUD(){
-    setText('statMoney', state.money);
+    setText('statMoney', myMoney());
     setText('statLife', state.life);
     setText('statWave', `${state.wave} / ${state.maxWave}`);
     setText('statScore', state.score);
     const badge = document.getElementById('diffBadge');
-    const badgeHtml = `방: <b>${state.room}</b> · 접속 <b>${state.players}명</b> · 난이도: <b>${DIFFICULTY[state.difficulty].label}</b>`;
+    const badgeHtml = `방: <b>${state.room}</b> · 나: <b>P${myNum}</b> · 접속 <b>${state.players}명</b> · 난이도: <b>${DIFFICULTY[state.difficulty].label}</b>`;
     if(badge.innerHTML !== badgeHtml) badge.innerHTML = badgeHtml;
     refreshTowerCards();
     const waveBtn = document.getElementById('waveBtn');

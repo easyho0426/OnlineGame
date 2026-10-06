@@ -8,18 +8,23 @@ const {
 function createGame(difficulty) {
   const state = {};
   let nextId = 1;
+  const players = new Map();   // pid(비밀) -> { num(공개 번호), money }
+  const byNum = new Map();     // num -> 같은 player 객체
+  let nextNum = 1;
+  const giveMoney = (num, amt) => { const p = byNum.get(num); if (p) p.money += amt; };
 
   function reset(diff) {
     if (!DIFFICULTY[diff]) diff = 'easy';
     const d = DIFFICULTY[diff];
     Object.assign(state, {
-      difficulty: diff, money: d.startMoney, life: d.startLife,
+      difficulty: diff, life: d.startLife,
       wave: 0, maxWave: 100, score: 0, speed: 1,
       gameOver: false, victory: false, waveActive: false,
       spawnQueue: [], spawnTimer: 0,
       towers: [], enemies: [], projectiles: [],
       cellMap: new Map(), events: []
     });
+    players.forEach(p => { p.money = d.startMoney; });   // 재시작하면 모두 시작 자금으로
   }
   reset(difficulty);
 
@@ -94,11 +99,11 @@ function createGame(difficulty) {
         state.enemies.forEach(e => {
           if (!e.alive) return;
           if (Math.hypot(e.x - this.x, e.y - this.y) <= this.splash) {
-            if (damageEnemy(e, this.damage)) this.owner.kills++;
+            if (damageEnemy(e, this.damage, this.owner.owner)) this.owner.kills++;
           }
         });
       } else {
-        if (damageEnemy(t, this.damage)) this.owner.kills++;
+        if (damageEnemy(t, this.damage, this.owner.owner)) this.owner.kills++;
         if (this.slow > 0) { t.slowTimer = 1.1; t.slowFactor = 1 - this.slow; }
       }
       state.events.push({ x: this.x, y: this.y, color: this.color, n: 4 });
@@ -116,9 +121,10 @@ function createGame(difficulty) {
 
   // ---------- 타워 ----------
   class Tower {
-    constructor(typeKey, r, c) {
+    constructor(typeKey, r, c, owner) {
       const def = TOWER_DEFS[typeKey];
       this.id = nextId++;
+      this.owner = owner;   // 이 노드를 설치한 플레이어 번호
       this.typeKey = typeKey; this.def = def;
       this.r = r; this.c = c;
       this.x = c * CELL + CELL / 2; this.y = r * CELL + CELL / 2;
@@ -183,7 +189,7 @@ function createGame(difficulty) {
           if (!e.alive) return;
           for (const s of this.beamSegments) {
             if (pointSegDist(e.x, e.y, s.x1, s.y1, s.x2, s.y2) <= e.r + 5) {
-              if (damageEnemy(e, dmg)) this.kills++;
+              if (damageEnemy(e, dmg, this.owner)) this.kills++;
               break;
             }
           }
@@ -198,12 +204,12 @@ function createGame(difficulty) {
     }
   }
 
-  function damageEnemy(e, dmg) {
+  function damageEnemy(e, dmg, ownerNum) {   // 처치 보상은 그 노드 주인에게
     if (!e.alive) return false;
     e.hp -= dmg;
     if (e.hp <= 0) {
       e.alive = false;
-      state.money += e.reward;
+      giveMoney(ownerNum, e.reward);
       state.score += e.reward * 3;
       state.events.push({ x: e.x, y: e.y, color: e.color, n: 10 });
       return true;
@@ -232,7 +238,7 @@ function createGame(difficulty) {
   const findTower = (id) => state.towers.find(t => t.id === id);
 
   function mergeTowers(a, b) {
-    const merged = new Tower(a.typeKey, b.r, b.c);
+    const merged = new Tower(a.typeKey, b.r, b.c, a.owner);
     merged.tier = a.tier + 1;
     applyTierStats(merged);
     merged.totalSpent = a.totalSpent + b.totalSpent;
@@ -245,14 +251,22 @@ function createGame(difficulty) {
   }
 
   function canMerge(a, b) {
-    return a && b && a !== b && a.typeKey === b.typeKey && a.tier === b.tier && a.tier < MAX_TIER;
+    return a && b && a !== b && a.owner === b.owner && a.typeKey === b.typeKey && a.tier === b.tier && a.tier < MAX_TIER;
   }
 
-  function handleCommand(cmd) {
+  function handleCommand(pid, cmd) {
+    const me = players.get(pid);
+    if (!me) return { error: '플레이어 정보가 없습니다' };
     if (!cmd || typeof cmd.type !== 'string') return { error: '잘못된 명령' };
 
     if (cmd.type === 'restart') { reset(cmd.difficulty); return { ok: true }; }
     if (state.gameOver || state.victory) return { error: '게임이 끝났습니다' };
+
+    // 남의 노드는 건드릴 수 없음
+    const myTower = (id) => {
+      const t = findTower(id);
+      return t && t.owner === me.num ? t : null;
+    };
 
     switch (cmd.type) {
       case 'place': {
@@ -261,14 +275,14 @@ function createGame(difficulty) {
         if (!isInt(cmd.r) || !isInt(cmd.c)) return { error: '잘못된 위치' };
         if (!cellBuildable(cmd.r, cmd.c)) return { error: '회로 위에는 설치할 수 없습니다' };
         if (state.towers.some(t => t.r === cmd.r && t.c === cmd.c)) return { error: '이미 노드가 있는 칸입니다' };
-        if (state.money < def.cost) return { error: '자금이 부족합니다' };
-        state.money -= def.cost;
-        state.towers.push(new Tower(cmd.tower, cmd.r, cmd.c));
+        if (me.money < def.cost) return { error: '자금이 부족합니다' };
+        me.money -= def.cost;
+        state.towers.push(new Tower(cmd.tower, cmd.r, cmd.c, me.num));
         return { ok: true };
       }
       case 'move': {
-        const tower = findTower(cmd.id);
-        if (!tower) return { error: '노드를 찾을 수 없습니다' };
+        const tower = myTower(cmd.id);
+        if (!tower) return { error: '내 노드가 아닙니다' };
         if (!isInt(cmd.r) || !isInt(cmd.c) || cmd.r < 0 || cmd.c < 0 || cmd.r >= ROWS || cmd.c >= COLS) return { error: '잘못된 위치' };
         if (cmd.r === tower.r && cmd.c === tower.c) return { ok: true };
         const target = state.towers.find(t => t !== tower && t.r === cmd.r && t.c === cmd.c);
@@ -282,20 +296,20 @@ function createGame(difficulty) {
         return { selectId: tower.id, toast: '노드를 이동했습니다' };
       }
       case 'merge': {
-        const a = findTower(cmd.a), b = findTower(cmd.b);
+        const a = myTower(cmd.a), b = myTower(cmd.b);
         if (!canMerge(a, b)) return { error: '합칠 수 없는 조합입니다' };
         return mergeTowers(a, b);
       }
       case 'sell': {
-        const t = findTower(cmd.id);
-        if (!t) return { error: '노드를 찾을 수 없습니다' };
-        state.money += Math.floor(t.totalSpent * 0.55);
+        const t = myTower(cmd.id);
+        if (!t) return { error: '내 노드가 아닙니다' };
+        me.money += Math.floor(t.totalSpent * 0.55);
         state.towers = state.towers.filter(x => x !== t);
         return { ok: true };
       }
       case 'rotate': {
-        const t = findTower(cmd.id);
-        if (!t) return { error: '노드를 찾을 수 없습니다' };
+        const t = myTower(cmd.id);
+        if (!t) return { error: '내 노드가 아닙니다' };
         t.rotate();
         return { ok: true };
       }
@@ -312,16 +326,28 @@ function createGame(difficulty) {
         return { ok: true };
       }
       case 'clearAll': {
-        if (state.towers.length === 0) return { error: '삭제할 노드가 없습니다' };
+        const mine = state.towers.filter(t => t.owner === me.num);
+        if (mine.length === 0) return { error: '삭제할 내 노드가 없습니다' };
         let refund = 0;
-        state.towers.forEach(t => refund += Math.floor(t.totalSpent * 0.55));
-        state.money += refund;
-        state.towers = [];
-        return { toast: `모든 노드를 삭제했습니다 (+${refund})` };
+        mine.forEach(t => refund += Math.floor(t.totalSpent * 0.55));
+        me.money += refund;
+        state.towers = state.towers.filter(t => t.owner !== me.num);
+        return { toast: `내 노드를 모두 삭제했습니다 (+${refund})` };
       }
       default:
         return { error: '알 수 없는 명령' };
     }
+  }
+
+  // 플레이어 등록 (pid는 본인만 아는 비밀 값, num은 화면에 보이는 공개 번호)
+  function addPlayer(pid) {
+    let p = players.get(pid);
+    if (!p) {
+      p = { num: nextNum++, money: DIFFICULTY[state.difficulty].startMoney };
+      players.set(pid, p);
+      byNum.set(p.num, p);
+    }
+    return p.num;
   }
 
   // ---------- 매 틱 업데이트 ----------
@@ -354,7 +380,7 @@ function createGame(difficulty) {
 
     if (state.waveActive && state.spawnQueue.length === 0 && state.enemies.every(e => !e.alive)) {
       state.waveActive = false;
-      state.money += 15 + state.wave * 2;
+      players.forEach(p => { p.money += 15 + state.wave * 2; });   // 웨이브 클리어 보너스는 모두에게
       if (state.wave >= state.maxWave) state.victory = true;
     }
   }
@@ -364,11 +390,12 @@ function createGame(difficulty) {
   function snapshot() {
     const events = state.events; state.events = [];
     return {
-      difficulty: state.difficulty, money: state.money, life: state.life,
+      difficulty: state.difficulty, life: state.life,
+      playerList: [...players.values()].map(p => ({ num: p.num, money: p.money })),
       wave: state.wave, maxWave: state.maxWave, score: state.score, speed: state.speed,
       waveActive: state.waveActive, gameOver: state.gameOver, victory: state.victory,
       towers: state.towers.map(t => ({
-        id: t.id, typeKey: t.typeKey, r: t.r, c: t.c, x: t.x, y: t.y, tier: t.tier,
+        id: t.id, owner: t.owner, typeKey: t.typeKey, r: t.r, c: t.c, x: t.x, y: t.y, tier: t.tier,
         range: t.range, damage: t.damage, kills: t.kills, totalSpent: t.totalSpent,
         dir: t.dir, orientation: t.orientation, beam: t.beamSegments
       })),
@@ -381,7 +408,7 @@ function createGame(difficulty) {
     };
   }
 
-  return { handleCommand, update, snapshot };
+  return { handleCommand, addPlayer, update, snapshot };
 }
 
 module.exports = { createGame };

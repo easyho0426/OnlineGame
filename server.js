@@ -18,6 +18,7 @@ const rooms = new Map();    // roomId -> { game, players:Set<socketId> }
 
 io.on('connection', (socket) => {
   let roomId = null;
+  let playerId = null;   // 클라이언트가 보낸 비밀 id (재접속해도 내 돈/노드를 되찾게 해줌)
 
   function leave() {
     if (!roomId) return;
@@ -39,17 +40,20 @@ io.on('connection', (socket) => {
       if (rooms.size >= MAX_ROOMS) return ack({ error: '서버가 가득 찼습니다' });
       rooms.set(id, { game: createGame(data && data.difficulty), players: new Set() });
     }
+    const pid = data && typeof data.pid === 'string' && data.pid.length >= 8 ? data.pid.slice(0, 64) : socket.id;
+    const num = rooms.get(id).game.addPlayer(pid);
     rooms.get(id).players.add(socket.id);
     socket.join(id);
     roomId = id;
-    ack({ room: id });
+    playerId = pid;
+    ack({ room: id, num });
   });
 
   socket.on('cmd', (cmd, ack) => {
     if (typeof ack !== 'function') ack = () => {};
     const r = roomId && rooms.get(roomId);
     if (!r) return ack({ error: '방에 입장하지 않았습니다' });
-    ack(r.game.handleCommand(cmd) || {});
+    ack(r.game.handleCommand(playerId, cmd) || {});
   });
 
   socket.on('disconnect', leave);
